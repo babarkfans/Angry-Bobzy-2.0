@@ -1,0 +1,629 @@
+<!doctype html>
+<!--
+  Angry Bobzy - Flappy Bird Edition
+
+  Deploy by placing this HTML file in the same folder as these assets:
+  bg.png
+  jump.png
+  nojump.png
+  obstacle-hk.png
+  obstacle-iu.png
+  obstacle-kk.png
+  obstacle-lq.png
+  obstacle-ms.png
+  obstacle-qg.png
+  obstacle-rp.png
+  splashscreen.png
+  splashscreen-vertical.png
+  Text.png (included for the supplied pixel-text reference; the game renders matching pixel text in code)
+  trophy.png (preferred for web hosting; Trophy.png is also accepted by the loader)
+  music.mpeg
+  dead.mpeg
+  Pixel Digivolve.otf
+
+  Then upload the folder to GitHub Pages, Netlify, Vercel, itch.io, or any static host.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#070719" />
+  <title>Angry Bobzy</title>
+
+  
+<!-- Primary Meta Tags -->
+<title>Angry Bobzy</title>
+<meta name="title" content="Angry Bobzy">
+<meta name="description" content="KingBobzy Game">
+
+<!-- Open Graph / Facebook / WhatsApp -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://angrybobzy.fun/">
+<meta property="og:title" content="Angry Bobzy">
+<meta property="og:description" content="KingBobzy Game">
+<meta property="og:image" content="https://angrybobzy.fun/thumbnail.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image">
+<meta property="twitter:domain" content="angrybobzy.fun">
+<meta property="twitter:url" content="https://angrybobzy.fun/">
+<meta name="twitter:title" content="Angry Bobzy">
+<meta name="twitter:description" content="KingBobzy Game">
+<meta name="twitter:image" content="https://angrybobzy.fun/thumbnail.png">
+
+
+  <style>
+    :root {
+      color-scheme: dark;
+      --gold: #ffd02a;
+      --ink: #070707;
+      --panel: rgba(9, 10, 25, 0.68);
+    }
+
+    @font-face {
+      font-family: "Pixel Digivolve";
+      src: url("./Pixel%20Digivolve.otf") format("opentype");
+      font-display: block;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      user-select: none;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #070719;
+      font-family: "Pixel Digivolve", "Courier New", monospace;
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+    }
+
+    canvas {
+      width: 100vw;
+      height: 100svh;
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      background: #09091e;
+    }
+
+    .loading {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      color: var(--gold);
+      text-align: center;
+      font: 700 clamp(18px, 5vw, 34px) "Pixel Digivolve", "Courier New", monospace;
+      line-height: 1.5;
+      text-shadow:
+        3px 0 var(--ink),
+        -3px 0 var(--ink),
+        0 3px var(--ink),
+        0 -3px var(--ink),
+        3px 3px var(--ink);
+      background: #070719;
+      z-index: 3;
+    }
+
+    .loading.is-hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game" aria-label="Angry Bobzy game canvas"></canvas>
+  <div class="loading" id="loading">LOADING<br>ANGRY BOBZY</div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d", { alpha: false });
+      const textCanvas = document.createElement("canvas");
+      const textCtx = textCanvas.getContext("2d");
+      const loading = document.getElementById("loading");
+
+      const ASSETS = {
+        bg: "bg.png",
+        jump: "jump.png",
+        fall: "nojump.png",
+        splash: "splashscreen.png",
+        splashVertical: "splashscreen-vertical.png",
+        trophy: ["trophy.png", "Trophy.png"],
+        music: "music.mpeg",
+        dead: "dead.mpeg",
+        obstacles: [
+          "obstacle-hk.png",
+          "obstacle-iu.png",
+          "obstacle-kk.png",
+          "obstacle-lq.png",
+          "obstacle-ms.png",
+          "obstacle-qg.png",
+          "obstacle-rp.png"
+        ]
+      };
+
+      const state = {
+        mode: "loading",
+        width: 0,
+        height: 0,
+        dpr: 1,
+        lastTime: 0,
+        bgX: 0,
+        runs: 0,
+        best: Number(localStorage.getItem("angryBobzyBest") || 0),
+        level: 1,
+        startedAt: 0,
+        nextPipeAt: 0,
+        flash: 0
+      };
+
+      const images = {};
+      const pipes = [];
+      const player = {
+        x: 0,
+        y: 0,
+        vy: 0,
+        size: 74,
+        radius: 24,
+        angle: 0,
+        jumpingFor: 0
+      };
+
+      const audio = new Audio(ASSETS.music);
+      audio.loop = true;
+      audio.preload = "auto";
+      audio.volume = 0.55;
+
+      const deathAudio = new Audio(ASSETS.dead);
+      deathAudio.loop = false;
+      deathAudio.preload = "auto";
+      deathAudio.volume = 0.8;
+
+      const rand = (min, max) => min + Math.random() * (max - min);
+      const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+      function loadImage(src) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error(`Could not load ${src}`));
+          img.src = src;
+        });
+      }
+
+      async function loadFirstAvailable(sources) {
+        const list = Array.isArray(sources) ? sources : [sources];
+        let lastError;
+        for (const src of list) {
+          try {
+            return await loadImage(src);
+          } catch (error) {
+            lastError = error;
+          }
+        }
+        throw lastError;
+      }
+
+      async function loadAssets() {
+        const entries = [
+          ["bg", ASSETS.bg],
+          ["jump", ASSETS.jump],
+          ["fall", ASSETS.fall],
+          ["splash", ASSETS.splash],
+          ["splashVertical", ASSETS.splashVertical],
+          ["trophy", ASSETS.trophy],
+          ...ASSETS.obstacles.map((src, index) => [`pipe${index}`, src])
+        ];
+
+        const loaded = await Promise.all(entries.map(async ([key, src]) => [key, await loadFirstAvailable(src)]));
+        loaded.forEach(([key, img]) => {
+          images[key] = img;
+        });
+      }
+
+      function resize() {
+        state.dpr = Math.min(window.devicePixelRatio || 1, 2);
+        state.width = Math.max(320, Math.floor(window.innerWidth));
+        state.height = Math.max(460, Math.floor(window.innerHeight));
+        canvas.width = Math.floor(state.width * state.dpr);
+        canvas.height = Math.floor(state.height * state.dpr);
+        canvas.style.width = `${state.width}px`;
+        canvas.style.height = `${state.height}px`;
+        ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+        configurePlayerSize();
+        if (state.mode === "loading") drawLoadingScreen();
+      }
+
+      function configurePlayerSize() {
+        const portrait = state.height >= state.width;
+        player.size = clamp(state.width * (portrait ? 0.36 : 0.21), 116, 196);
+        player.radius = player.size * 0.21;
+        if (!state.startedAt) {
+          player.x = state.width * (portrait ? 0.32 : 0.24);
+          player.y = state.height * 0.45;
+        }
+      }
+
+      function levelConfig() {
+        const portrait = state.height >= state.width;
+        const baseGap = portrait ? state.height * 0.26 : state.height * 0.34;
+        const configs = [
+          { speed: 215, gap: baseGap, variance: state.height * 0.13, every: 1450 },
+          { speed: 265, gap: baseGap * 0.84, variance: state.height * 0.19, every: 1300 },
+          { speed: 325, gap: baseGap * 0.72, variance: state.height * 0.25, every: 1180 }
+        ];
+        return configs[state.level - 1];
+      }
+
+      function updateLevel() {
+        const old = state.level;
+        state.level = state.runs >= 16 ? 3 : state.runs >= 7 ? 2 : 1;
+        if (old !== state.level) state.flash = 1;
+      }
+
+      function resetGame() {
+        deathAudio.pause();
+        deathAudio.currentTime = 0;
+        pipes.length = 0;
+        state.mode = "playing";
+        state.runs = 0;
+        state.level = 1;
+        state.bgX = 0;
+        state.startedAt = performance.now();
+        state.nextPipeAt = 0;
+        state.flash = 0;
+        player.x = state.width * (state.height >= state.width ? 0.32 : 0.24);
+        player.y = state.height * 0.42;
+        player.vy = -280;
+        player.angle = -0.2;
+        player.jumpingFor = 0.18;
+        spawnPipe(true);
+        spawnPipe(true);
+      }
+
+      function tryPlayMusic() {
+        if (state.mode === "ended") return;
+        audio.play().catch(() => {
+          // Browsers may require a tap/click. The next user action will retry.
+        });
+      }
+
+      function stopMusic() {
+        audio.pause();
+        audio.currentTime = 0;
+      }
+
+      function playDeathSound() {
+        deathAudio.pause();
+        deathAudio.currentTime = 0;
+        deathAudio.play().catch(() => {});
+      }
+
+      function act() {
+        if (state.mode === "splash") {
+          resetGame();
+          tryPlayMusic();
+          return;
+        }
+        if (state.mode === "ended") {
+          resetGame();
+          tryPlayMusic();
+          return;
+        }
+        if (state.mode === "playing") {
+          player.vy = -Math.max(390, state.height * 0.48);
+          player.jumpingFor = 0.2;
+          tryPlayMusic();
+        }
+      }
+
+      function spawnPipe(initial = false) {
+        const config = levelConfig();
+        const width = clamp(state.width * (state.height >= state.width ? 0.28 : 0.17), 118, 190);
+        const gap = clamp(config.gap, player.size * 2.25, state.height * 0.45);
+        const margin = Math.max(84, state.height * 0.14);
+        const gapY = clamp(
+          state.height * 0.48 + rand(-config.variance, config.variance),
+          margin + gap / 2,
+          state.height - margin - gap / 2
+        );
+        const pipeImg = images[`pipe${Math.floor(Math.random() * ASSETS.obstacles.length)}`];
+        const spacing = state.width * (state.height >= state.width ? 0.72 : 0.58);
+        const lastX = pipes.length ? pipes[pipes.length - 1].x : state.width * 0.95;
+
+        pipes.push({
+          x: initial ? lastX + spacing : state.width + width,
+          y: gapY,
+          width,
+          gap,
+          img: pipeImg,
+          passed: false
+        });
+      }
+
+      function endRound() {
+        if (state.mode !== "playing") return;
+        state.mode = "ended";
+        state.best = Math.max(state.best, state.runs);
+        localStorage.setItem("angryBobzyBest", String(state.best));
+        stopMusic();
+        playDeathSound();
+      }
+
+      function circleRectCollision(cx, cy, cr, rx, ry, rw, rh) {
+        const nx = clamp(cx, rx, rx + rw);
+        const ny = clamp(cy, ry, ry + rh);
+        const dx = cx - nx;
+        const dy = cy - ny;
+        return dx * dx + dy * dy < cr * cr;
+      }
+
+      function update(dt, now) {
+        if (state.mode !== "playing") return;
+
+        const config = levelConfig();
+        state.bgX = (state.bgX - config.speed * 0.17 * dt) % state.width;
+        state.nextPipeAt -= dt * 1000;
+        player.jumpingFor = Math.max(0, player.jumpingFor - dt);
+        player.vy += state.height * 0.92 * dt;
+        player.vy = Math.min(player.vy, state.height * 0.78);
+        player.y += player.vy * dt;
+        player.angle = clamp(player.vy / 720, -0.45, 0.75);
+        state.flash = Math.max(0, state.flash - dt * 1.4);
+
+        for (const pipe of pipes) {
+          pipe.x -= config.speed * dt;
+          if (!pipe.passed && pipe.x + pipe.width * 0.5 < player.x) {
+            pipe.passed = true;
+            state.runs += 1;
+            updateLevel();
+          }
+        }
+
+        while (pipes.length && pipes[0].x + pipes[0].width < -20) pipes.shift();
+        if (!pipes.length || pipes[pipes.length - 1].x < state.width - state.width * 0.48) spawnPipe();
+
+        const floorY = state.height - Math.max(24, state.height * 0.035);
+        if (player.y - player.radius < 0 || player.y + player.radius > floorY) endRound();
+
+        const fairRadius = player.radius * 0.82;
+        for (const pipe of pipes) {
+          const hitPadX = pipe.width * 0.18;
+          const topRect = {
+            x: pipe.x + hitPadX,
+            y: -40,
+            w: pipe.width - hitPadX * 2,
+            h: pipe.y - pipe.gap / 2 + 28
+          };
+          const bottomRect = {
+            x: pipe.x + hitPadX,
+            y: pipe.y + pipe.gap / 2 - 28,
+            w: pipe.width - hitPadX * 2,
+            h: state.height - (pipe.y + pipe.gap / 2) + 80
+          };
+
+          if (
+            circleRectCollision(player.x, player.y, fairRadius, topRect.x, topRect.y, topRect.w, topRect.h) ||
+            circleRectCollision(player.x, player.y, fairRadius, bottomRect.x, bottomRect.y, bottomRect.w, bottomRect.h)
+          ) {
+            endRound();
+            break;
+          }
+        }
+      }
+
+      function drawCoverImage(img, x, y, w, h) {
+        if (!img || !img.width || !img.height) return;
+        const scale = Math.max(w / img.width, h / img.height);
+        const sw = w / scale;
+        const sh = h / scale;
+        const sx = (img.width - sw) / 2;
+        const sy = (img.height - sh) / 2;
+        ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+      }
+
+      function drawBg(speedScale = 1) {
+        const img = images.bg;
+        if (!img) {
+          ctx.fillStyle = "#09091e";
+          ctx.fillRect(0, 0, state.width, state.height);
+          return;
+        }
+        const scale = Math.max(state.height / img.height, state.width / img.width);
+        const drawW = img.width * scale;
+        const drawH = img.height * scale;
+        const y = state.height - drawH;
+        let x = (state.bgX * speedScale) % drawW;
+        while (x > 0) x -= drawW;
+        for (; x < state.width; x += drawW) {
+          ctx.drawImage(img, x, y, drawW, drawH);
+        }
+        ctx.fillStyle = "rgba(2, 3, 12, 0.08)";
+        ctx.fillRect(0, 0, state.width, state.height);
+      }
+
+      function pixelText(text, x, y, size, align = "center", color = "#ffd02a") {
+        const pixelScale = 2;
+        const fontSize = Math.max(8, Math.round(size / pixelScale));
+        const stroke = Math.max(2, Math.round(fontSize * 0.18));
+        textCtx.font = `900 ${fontSize}px "Pixel Digivolve", "Courier New", monospace`;
+        const metrics = textCtx.measureText(text);
+        const width = Math.ceil(metrics.width + stroke * 6);
+        const height = Math.ceil(fontSize * 1.65 + stroke * 6);
+        textCanvas.width = width;
+        textCanvas.height = height;
+        textCtx.imageSmoothingEnabled = false;
+        textCtx.font = `900 ${fontSize}px "Pixel Digivolve", "Courier New", monospace`;
+        textCtx.textAlign = "center";
+        textCtx.textBaseline = "middle";
+        textCtx.lineJoin = "miter";
+        textCtx.miterLimit = 2;
+        textCtx.strokeStyle = "#050505";
+        textCtx.lineWidth = stroke;
+        textCtx.strokeText(text, width / 2, height / 2);
+        textCtx.fillStyle = color;
+        textCtx.fillText(text, width / 2, height / 2);
+
+        const drawW = width * pixelScale;
+        const drawH = height * pixelScale;
+        const drawX = align === "left" ? x : align === "right" ? x - drawW : x - drawW / 2;
+        const drawY = y - drawH / 2;
+        ctx.save();
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(textCanvas, drawX, drawY, drawW, drawH);
+        ctx.restore();
+      }
+
+      function drawPipes() {
+        for (const pipe of pipes) {
+          const sourceGap = 0.305;
+          const visualH = Math.max(state.height * 1.25, pipe.gap / sourceGap);
+          const visualW = pipe.width;
+          const visualY = pipe.y - visualH * 0.5;
+          ctx.drawImage(pipe.img, pipe.x, visualY, visualW, visualH);
+        }
+      }
+
+      function drawPlayer() {
+        const img = player.jumpingFor > 0 || player.vy < -25 ? images.jump : images.fall;
+        ctx.save();
+        ctx.translate(player.x, player.y);
+        ctx.rotate(player.angle);
+        ctx.drawImage(img, -player.size / 2, -player.size / 2, player.size, player.size);
+        ctx.restore();
+      }
+
+      function drawHud() {
+        const small = clamp(state.width * 0.037, 16, 29);
+        const big = clamp(state.width * 0.069, 28, 56);
+        const margin = Math.max(16, state.width * 0.025);
+        pixelText(`RUNS ${state.runs}`, margin, margin + small, small, "left");
+        pixelText(`LVL ${state.level}`, state.width - margin, margin + small, small, "right");
+        pixelText(String(state.runs), state.width / 2, margin + big * 0.72, big);
+
+        if (state.flash > 0) {
+          ctx.globalAlpha = state.flash;
+          pixelText(`LEVEL ${state.level}`, state.width / 2, state.height * 0.24, clamp(state.width * 0.05, 24, 52));
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      function drawSplash() {
+        const splash = state.height >= state.width ? images.splashVertical : images.splash;
+        if (splash) {
+          drawCoverImage(splash, 0, 0, state.width, state.height);
+        } else {
+          drawLoadingScreen();
+        }
+      }
+
+      function drawLoadingScreen() {
+        ctx.fillStyle = "#070719";
+        ctx.fillRect(0, 0, state.width, state.height);
+      }
+
+      function drawEndScreen() {
+        drawBg(0.45);
+        drawPipes();
+        drawPlayer();
+        ctx.fillStyle = "rgba(4, 4, 12, 0.62)";
+        ctx.fillRect(0, 0, state.width, state.height);
+
+        const portrait = state.height >= state.width;
+        const titleSize = clamp(state.width * (portrait ? 0.097 : 0.064), 34, 72);
+        const bodySize = clamp(state.width * (portrait ? 0.054 : 0.033), 19, 38);
+        const trophySize = clamp(Math.min(state.width, state.height) * (portrait ? 0.34 : 0.29), 130, 250);
+        const centerY = portrait ? state.height * 0.43 : state.height * 0.48;
+
+        pixelText("WICKET!", state.width / 2, centerY - trophySize * 0.86, titleSize);
+        ctx.drawImage(images.trophy, state.width / 2 - trophySize / 2, centerY - trophySize / 2, trophySize, trophySize);
+        pixelText(`RUNS ${state.runs}`, state.width / 2, centerY + trophySize * 0.68, bodySize);
+        pixelText(`BEST ${state.best}`, state.width / 2, centerY + trophySize * 0.92, bodySize * 0.78, "center", "#fff1a8");
+        pixelText("TAP TO BAT AGAIN", state.width / 2, state.height - Math.max(58, state.height * 0.1), bodySize * 0.78);
+      }
+
+      function drawPlaying() {
+        drawBg(1);
+        drawPipes();
+        drawPlayer();
+        drawHud();
+      }
+
+      function frame(now) {
+        const dt = Math.min(0.033, (now - state.lastTime || 16) / 1000);
+        state.lastTime = now;
+
+        ctx.clearRect(0, 0, state.width, state.height);
+        if (state.mode === "splash") {
+          drawSplash();
+        } else if (state.mode === "playing") {
+          update(dt, now);
+          drawPlaying();
+        } else if (state.mode === "ended") {
+          drawEndScreen();
+        }
+
+        requestAnimationFrame(frame);
+      }
+
+      function bindControls() {
+        window.addEventListener("resize", resize, { passive: true });
+        window.addEventListener("pointerdown", (event) => {
+          event.preventDefault();
+          act();
+        }, { passive: false });
+        window.addEventListener("keydown", (event) => {
+          if (event.code === "Space" || event.code === "ArrowUp" || event.code === "Enter") {
+            event.preventDefault();
+            act();
+          }
+        });
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden) {
+            audio.pause();
+            deathAudio.pause();
+          } else if (state.mode === "playing") {
+            tryPlayMusic();
+          }
+        });
+      }
+
+      async function init() {
+        try {
+          resize();
+          await Promise.all([
+            loadAssets(),
+            document.fonts ? document.fonts.load('24px "Pixel Digivolve"') : Promise.resolve()
+          ]);
+          state.mode = "splash";
+          loading.classList.add("is-hidden");
+          bindControls();
+          resize();
+          requestAnimationFrame(frame);
+        } catch (error) {
+          loading.textContent = `${error.message}\n\nPut all required assets beside angry-bobzy.html.`;
+        }
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>
